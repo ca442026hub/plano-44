@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plano Inteligente 4.0</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --bg:#0f172a; --card:#111827; --text:#f8fafc; --muted:#94a3b8;
+      --orange:#ff5a1f; --line:#273449; --green:#22c55e; --red:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:linear-gradient(135deg,#0f172a,#020617);color:var(--text)}
+    header{padding:24px 32px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+    h1{margin:0;font-size:28px} h1 span{color:var(--orange)}
+    header p{margin:6px 0 0;color:var(--muted)}
+    main{padding:24px;max-width:1400px;margin:auto}
+    .card{background:rgba(17,24,39,.9);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+    .kpi strong{display:block;font-size:32px;margin-top:8px;color:var(--orange)}
+    .muted{color:var(--muted);font-size:14px}
+    input,textarea,button{font:inherit}
+    input[type=file],textarea{width:100%;background:#020617;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px}
+    textarea{min-height:100px}
+    button{border:0;border-radius:12px;padding:12px 18px;cursor:pointer;font-weight:700}
+    .primary{background:var(--orange);color:white}
+    .secondary{background:#1e293b;color:white}
+    .actions{display:flex;gap:12px;flex-wrap:wrap}
+    table{width:100%;border-collapse:collapse;min-width:1000px}
+    th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}
+    th{color:var(--muted);position:sticky;top:0;background:#111827}
+    .table-wrap{overflow:auto;max-height:520px}
+    .ok{color:var(--green);font-weight:700}
+    .bad{color:var(--red);font-weight:700}
+    footer{text-align:center;color:var(--muted);padding:24px}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><span>Plano</span> Inteligente 4.0</h1>
+    <p>Motor de decisão simples • Motoristas • Rotas • GitHub/Vercel</p>
+  </div>
+  <div>🚚</div>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Gerador de Plano de Motoristas</h2>
+    <p class="muted">
+      Importe a base de motoristas e o romaneio. O sistema faz match por região, considera litragem, veículo, prioritários, média de rodagens e desempenho.
+    </p>
+    <div class="actions">
+      <button class="primary" onclick="gerarPlano()">Gerar Plano</button>
+      <button class="secondary" onclick="exportarCSV()">Exportar CSV</button>
+      <button class="secondary" onclick="limparTudo()">Limpar</button>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card kpi">Motoristas<strong id="kMotoristas">0</strong></div>
+    <div class="card kpi">Rotas<strong id="kRotas">0</strong></div>
+    <div class="card kpi">Alocados<strong id="kAlocados">0</strong></div>
+    <div class="card kpi">Sem Match<strong id="kSemMatch">0</strong></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h3>1. Base de Motoristas</h3>
+      <p class="muted">Colunas esperadas: ID, NOME, REGIAO, TIPO_VEICULO, DS, MEDIA_RODAGENS.</p>
+      <input id="fileMotoristas" type="file" accept=".xlsx,.xls,.csv">
+      <p id="msgMotoristas" class="muted">Nenhum arquivo carregado.</p>
+    </div>
+
+    <div class="card">
+      <h3>2. Romaneio</h3>
+      <p class="muted">Aba: Plano de expedição. Usa coluna D = paradas, T = litragem e AC = região.</p>
+      <input id="fileRomaneio" type="file" accept=".xlsx,.xls,.csv">
+      <p id="msgRomaneio" class="muted">Nenhum arquivo carregado.</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>3. Prioritários</h3>
+    <p class="muted">Digite um ID por linha. Prioritários recebem rotas menores, mas precisam ter match de região.</p>
+    <textarea id="prioritarios" placeholder="Exemplo:
+123456
+789101"></textarea>
+  </section>
+
+  <section class="card">
+    <h3>Plano Final</h3>
+    <input id="busca" placeholder="Buscar motorista, ID, região ou rota..." oninput="renderPlano()">
+    <br><br>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>AT</th>
+            <th>Rota</th>
+            <th>Paradas</th>
+            <th>Cidade</th>
+            <th>Litragem</th>
+            <th>Região</th>
+            <th>Motorista</th>
+            <th>ID</th>
+            <th>Veículo</th>
+            <th>Status</th>
+            <th>Auditoria</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Desenvolvido por <b>Camila Oliveira</b> • Analista Fleet Uberlândia-MG
+</footer>
+
+<script>
+let motoristas = [];
+let rotas = [];
+let plano = [];
+
+const $ = id => document.getElementById(id);
+
+function texto(v){
+  return String(v ?? "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"");
+}
+
+function numero(v){
+  if(typeof v === "number") return v;
+  return Number(String(v ?? "").replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
+}
+
+function lerArquivo(file, callback){
+  const reader = new FileReader();
+  reader.onload = e => {
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data, {type:"array"});
+    callback(wb);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+$("fileMotoristas").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if(!file) return;
+
+  lerArquivo(file, wb => {
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const linhas = XLSX.utils.sheet_to_json(sheet, {defval:""});
+
+    motoristas = linhas.map(l => {
+      const dsBruto = l.DS || l.DESEMPENHO || l["Desempenho"] || l.E || "";
+      return {
+        id: String(l.ID || l.Id || "").trim(),
+        nome: String(l.NOME || l.Nome || "").trim(),
+        regiao: texto(l.REGIAO || l["REGIÃO"] || l.Regiao || l.C || ""),
+        veiculo: texto(l.TIPO_VEICULO || l.VEICULO || l["TIPO DE VEICULO"] || ""),
+        dsTexto: String(dsBruto).trim(),
+        ds: texto(dsBruto).includes("NAO RODOU") ? null : numero(dsBruto),
+        media: numero(l.MEDIA_RODAGENS || l["MÉDIA RODAGENS"] || l["MEDIA RODAGENS"] || l.F),
+        prioritario: false,
+        usado: false
+      };
+    }).filter(m => m.id && m.nome && m.regiao && m.veiculo);
+
+    $("msgMotoristas").textContent = `${motoristas.length} motoristas carregados.`;
+    atualizarKPIs();
+  });
+});
+
+$("fileRomaneio").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if(!file) return;
+
+  lerArquivo(file, wb => {
+    const aba = wb.SheetNames.find(n => texto(n) === "PLANO DE EXPEDICAO") || wb.SheetNames[0];
+    const sheet = wb.Sheets[aba];
+    const linhas = XLSX.utils.sheet_to_json(sheet, {header:"A", defval:"", range:1});
+
+    rotas = linhas.map(l => ({
+      at: l.B,
+      rota: l.C,
+      paradas: numero(l.D),
+      cidade: l.F,
+      litragem: numero(l.T),
+      regiao: texto(l.AC),
+      regiaoOriginal: l.AC
+    })).filter(r => r.rota && r.regiao);
+
+    $("msgRomaneio").textContent = `${rotas.length} rotas carregadas.`;
+    atualizarKPIs();
+  });
+});
+
+function tiposPermitidos(litragem){
+  if(litragem >= 800) return ["FIORINO", "VAN", "PASSEIO"];
+  if(litragem < 100) return ["MOTO"];
+  return ["PASSEIO", "FIORINO", "VAN"];
+}
+
+function aplicarPrioritarios(){
+  const ids = $("prioritarios").value.split(/[\n,;]/).map(x => x.trim()).filter(Boolean);
+  motoristas.forEach(m => m.prioritario = ids.includes(m.id));
+}
+
+function score(m){
+  let s = 0;
+  s += Math.max(0, 20 - m.media) * 3;
+  s += m.ds === null ? 20 : Math.min(100, m.ds) * 0.3;
+  if(m.prioritario) s += 50;
+  return s;
+}
+
+function gerarPlano(){
+  if(!motoristas.length || !rotas.length){
+    alert("Importe a base de motoristas e o romaneio antes de gerar.");
+    return;
+  }
+
+  aplicarPrioritarios();
+  plano = [];
+  motoristas.forEach(m => m.usado = false);
+
+  const rotasOrdenadas = [...rotas].sort((a,b) => a.paradas - b.paradas);
+
+  for(const rota of rotasOrdenadas){
+    const permitidos = tiposPermitidos(rota.litragem);
+
+    const candidatos = motoristas
+      .filter(m => !m.usado && m.regiao === rota.regiao && permitidos.includes(m.veiculo))
+      .map(m => ({...m, score: score(m)}))
+      .sort((a,b) => {
+        if(a.prioritario && !b.prioritario) return -1;
+        if(!a.prioritario && b.prioritario) return 1;
+        return b.score - a.score;
+      });
+
+    const escolhido = candidatos[0];
+
+    if(escolhido){
+      const original = motoristas.find(m => m.id === escolhido.id);
+      original.usado = true;
+
+      plano.push({
+        ...rota,
+        motorista: escolhido.nome,
+        id: escolhido.id,
+        veiculo: escolhido.veiculo,
+        status: "ALOCADO",
+        auditoria: `${escolhido.prioritario ? "Prioritário • " : ""}Região match • Veículo compatível • Média ${escolhido.media} • DS ${escolhido.ds === null ? "Não rodou ontem" : escolhido.ds + "%"}`
+      });
+    } else {
+      plano.push({
+        ...rota,
+        motorista: "SEM MATCH",
+        id: "-",
+        veiculo: "-",
+        status: "SEM MATCH",
+        auditoria: `Sem motorista disponível para região ${rota.regiaoOriginal} e litragem ${rota.litragem}`
+      });
+    }
+  }
+
+  renderPlano();
+  atualizarKPIs();
+}
+
+function renderPlano(){
+  const busca = texto($("busca").value);
+  const lista = plano.filter(p => texto(Object.values(p).join(" ")).includes(busca));
+
+  $("tbody").innerHTML = lista.map(p => `
+    <tr>
+      <td>${p.at || ""}</td>
+      <td>${p.rota || ""}</td>
+      <td>${p.paradas || ""}</td>
+      <td>${p.cidade || ""}</td>
+      <td>${p.litragem || ""}</td>
+      <td>${p.regiaoOriginal || ""}</td>
+      <td>${p.motorista}</td>
+      <td>${p.id}</td>
+      <td>${p.veiculo}</td>
+      <td class="${p.status === "ALOCADO" ? "ok" : "bad"}">${p.status}</td>
+      <td>${p.auditoria}</td>
+    </tr>
+  `).join("");
+}
+
+function atualizarKPIs(){
+  $("kMotoristas").textContent = motoristas.length;
+  $("kRotas").textContent = rotas.length;
+  $("kAlocados").textContent = plano.filter(p => p.status === "ALOCADO").length;
+  $("kSemMatch").textContent = plano.filter(p => p.status === "SEM MATCH").length;
+}
+
+function exportarCSV(){
+  if(!plano.length){
+    alert("Gere o plano antes de exportar.");
+    return;
+  }
+
+  const ws = XLSX.utils.json_to_sheet(plano);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Plano Final");
+  XLSX.writeFile(wb, "plano-final.xlsx");
+}
+
+function limparTudo(){
+  if(confirm("Deseja limpar os dados carregados?")){
+    motoristas = [];
+    rotas = [];
+    plano = [];
+    $("fileMotoristas").value = "";
+    $("fileRomaneio").value = "";
+    $("prioritarios").value = "";
+    $("msgMotoristas").textContent = "Nenhum arquivo carregado.";
+    $("msgRomaneio").textContent = "Nenhum arquivo carregado.";
+    renderPlano();
+    atualizarKPIs();
+  }
+}
+</script>
+</body>
+</html>
